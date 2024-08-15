@@ -9,19 +9,24 @@ import {
 	type RESTPostAPIChatInputApplicationCommandsJSONBody,
 	Routes,
 	type SlashCommandBuilder,
+	type SlashCommandOptionsOnlyBuilder,
+	type SlashCommandSubcommandsOnlyBuilder,
 } from 'discord.js';
 import { glob } from 'glob';
 
 export interface Command {
 	/** Command data */
-	data: SlashCommandBuilder;
+	data: SlashCommandBuilder | SlashCommandSubcommandsOnlyBuilder | SlashCommandOptionsOnlyBuilder;
 	/** Async function to execute when the command is used */
-	execute: (interaction: ChatInputCommandInteraction) => Promise<void>;
+	execute: (interaction: ChatInputCommandInteraction) => Promise<void> | void;
 	options?: {
-		/** Only register the command in these guilds */
+		/** Array of guild IDs */
 		guilds?: string[];
-		/** Only allow the command to be used in DMs */
-		cooldown?: number;
+		/** Registers the command as a user app command */
+		userApp?: {
+			/** Specifies where the command can be used (Guilds ,Bot DMS, Private Channel) */
+			contexts: Context[];
+		};
 	};
 }
 
@@ -29,6 +34,28 @@ export type CommandCollection = Collection<any, Command>;
 
 // Commands collection
 const commands: CommandCollection = new Collection();
+
+// Extend command json for user app
+export enum IntegrationType {
+	Guild = 0,
+	User = 1,
+}
+
+/** Defines where the command can be used */
+export enum Context {
+	/** Command can be used in guilds */
+	Guild = 0,
+	/** Command can be used in Bot DMs */
+	User = 1,
+	/** Command can be used in groups and all DMs */
+	Private = 2,
+}
+
+interface CommandJSON extends RESTPostAPIChatInputApplicationCommandsJSONBody {
+	// biome-ignore lint: This format is required by the Discord API
+	integration_types?: IntegrationType[];
+	contexts?: Context[];
+}
 
 /** Register a slash command */
 export async function registerCommand(cmd: Command) {
@@ -46,28 +73,45 @@ export async function deploy(client: Client) {
 		return;
 	}
 
-	PinoLogger.info(`Deploying ${client.commands.size} total commands:`);
+	PinoLogger.info(`Deploying ${client.commands.size} total command(s):`);
 	for (const cmd of client.commands) {
 		PinoLogger.info(`	- ${cmd[1].data.name}`);
 	}
 
+	const isGuildCommand = (cmd: Command) => cmd.options?.guilds != null;
+	const isUserAppCommand = (cmd: Command) => cmd.options?.userApp != null;
 	const rest = new REST().setToken(Bun.env.BOT_TOKEN);
 
+	// Global commands
 	const globalCommands = client.commands
-		.filter((cmd) => !cmd.options?.guilds)
+		.filter((cmd) => !isGuildCommand(cmd) && !isUserAppCommand(cmd))
 		.map((c) => c.data.toJSON());
-	PinoLogger.info(`Deploying ${globalCommands.length} global commands.`);
+	PinoLogger.info("Deploying global command(s)...");
 	const data = (await rest.put(Routes.applicationCommands(Bun.env.APPLICATION_ID.toString()), {
 		body: globalCommands,
 	})) as Array<any>;
-	PinoLogger.info(`Successfully deployed ${data.length} global commands.`);
+	PinoLogger.info(`Successfully deployed ${data.length} global command(s).`);
+
+	// User app commands
+	const userAppCommands = client.commands.filter(isUserAppCommand);
+	PinoLogger.info("Deploying user app command(s)...");
+	const userAppCommandsJson = [];
+	for (const [key, command] of userAppCommands) {
+		const cmdJson = command.data.toJSON() as CommandJSON;
+		cmdJson.contexts = command.options?.userApp?.contexts;
+		cmdJson.integration_types = [IntegrationType.User];
+		userAppCommandsJson.push(cmdJson);
+	}
+	const appData = (await rest.put(Routes.applicationCommands(Bun.env.APPLICATION_ID.toString()), {
+		body: userAppCommandsJson,
+	})) as Array<any>;
+	PinoLogger.info(`Successfully deployed ${appData.length} user app command(s).`);
 
 	// We first get all guilds so old commands will also be removed
-
-	const guildCommands = client.commands.filter((cmd) => cmd.options?.guilds).map((c) => c);
+	const guildCommands = client.commands.filter(isGuildCommand);
 	const guilds: Collection<string, RESTPostAPIChatInputApplicationCommandsJSONBody[]> =
 		new Collection();
-	for (const command of guildCommands) {
+	for (const [key, command] of guildCommands) {
 		if (!command.options?.guilds) continue;
 		// biome-ignore lint: command.options.guilds cannot be undefined here
 		for (const guild of command.options?.guilds) {
@@ -84,7 +128,7 @@ export async function deploy(client: Client) {
 			{ body: [...new Set(guild[1])] }
 		)) as { length: number };
 		PinoLogger.info(
-			`Successfully deployed ${data.length} commands for the '${guild[0]}' guild.`
+			`Deployed ${data.length} command(s) for the '${guild[0]}' guild.`
 		);
 	}
 }
@@ -92,7 +136,6 @@ export async function deploy(client: Client) {
 /** Import every typescript file in the commands folder */
 async function importCommands() {
 	const commandsPath = resolve('src/commands');
-
 	const commandFiles = await glob('**/*.cmd.ts', { cwd: commandsPath });
 
 	for (const file of commandFiles) {
