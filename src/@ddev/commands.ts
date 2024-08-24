@@ -65,7 +65,10 @@ export async function deploy(
 	/** Ignores the cache and force the deployement */
 	ignoreCache = false
 ) {
-	await importCommands();
+	if (!(await importCommands())) {
+		PinoLogger.error('Commands deployement failed.');
+		return;
+	}
 	client.commands = commands;
 
 	// Commands are the same as last deploy
@@ -135,12 +138,20 @@ export async function deploy(
 /** Import every typescript file in the commands folder */
 async function importCommands() {
 	try {
+		const commandsBundle = Bun.file('./src/@ddev/bundle.commands.ts');
+		if (!(await commandsBundle.exists())) {
+			PinoLogger.error(
+				"The 'commands' bundle doesn't exist. You can generate it using the package scripts. Commands will not be deployed."
+			);
+			return false;
+		}
 		// @ts-ignore
 		await import('./bundle.commands');
+		return true;
 	} catch (err) {
-		PinoLogger.warn(
-			"Couldn't import 'commands' bundle file. Make sure you have generated it by using the package scripts."
-		);
+		PinoLogger.error("Couldn't import 'commands' bundle file:");
+		PinoLogger.error(err);
+		return false;
 	}
 }
 

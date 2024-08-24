@@ -41,11 +41,17 @@ export async function loadEvents(client: Client) {
 
 async function importEvents() {
 	try {
+		const eventsBundle = Bun.file('./src/@ddev/bundle.events.ts');
+		if (!(await eventsBundle.exists())) {
+			PinoLogger.error(
+				"The 'events' bundle doesn't exist. You can generate it using the package scripts. Events will not be loaded."
+			);
+			return;
+		}
 		// @ts-ignore
 		await import('./bundle.events');
 	} catch (err) {
-		PinoLogger.warn(
-			"Couldn't import 'events' bundle file. Make sure you have generated it by using the package scripts."
-		);
+		PinoLogger.error("Couldn't import 'events' bundle file:");
+		console.error(err);
 	}
 }

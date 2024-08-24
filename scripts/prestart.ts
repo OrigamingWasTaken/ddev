@@ -8,7 +8,7 @@ const PinoLogger = pino({
 	},
 });
 
-const SUPPORTED_VERSION = '1.1.27';
+const SUPPORTED_VERSION = '1.1.25';
 
 if (lt(Bun.version, SUPPORTED_VERSION)) {
 	PinoLogger.warn(
