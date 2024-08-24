@@ -14,7 +14,6 @@ const commandFiles = (await readdir(resolve('./src/commands'), { recursive: true
 const eventFiles = (await readdir(resolve('./src/events'), { recursive: true })).filter((file) =>
 	file.endsWith('.evt.ts')
 );
-console.log(eventFiles);
 
 const commandsBundle = Bun.file('./src/@ddev/bundle.commands.ts');
 await Bun.write(
