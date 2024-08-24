@@ -1,5 +1,3 @@
-import { existsSync, readFileSync, writeFileSync } from 'node:fs';
-import { join, resolve } from 'node:path';
 import { PinoLogger } from '@ddev';
 import {
 	type ChatInputCommandInteraction,
@@ -12,7 +10,6 @@ import {
 	type SlashCommandOptionsOnlyBuilder,
 	type SlashCommandSubcommandsOnlyBuilder,
 } from 'discord.js';
-import { glob } from 'glob';
 
 export interface Command {
 	/** Command data */
@@ -63,12 +60,16 @@ export async function registerCommand(cmd: Command) {
 }
 
 /** Deploy all slash commands */
-export async function deploy(client: Client) {
+export async function deploy(
+	client: Client,
+	/** Ignores the cache and force the deployement */
+	ignoreCache = false
+) {
 	await importCommands();
 	client.commands = commands;
 
 	// Commands are the same as last deploy
-	if (areCommandsCached(commands)) {
+	if (!ignoreCache && (await areCommandsCached(commands))) {
 		PinoLogger.info('Deploy skipped because current commands are identical as last deploy.');
 		return;
 	}
@@ -86,7 +87,7 @@ export async function deploy(client: Client) {
 	const globalCommands = client.commands
 		.filter((cmd) => !isGuildCommand(cmd) && !isUserAppCommand(cmd))
 		.map((c) => c.data.toJSON());
-	PinoLogger.info("Deploying global command(s)...");
+	PinoLogger.info('Deploying global command(s)...');
 	const data = (await rest.put(Routes.applicationCommands(Bun.env.APPLICATION_ID.toString()), {
 		body: globalCommands,
 	})) as Array<any>;
@@ -94,7 +95,7 @@ export async function deploy(client: Client) {
 
 	// User app commands
 	const userAppCommands = client.commands.filter(isUserAppCommand);
-	PinoLogger.info("Deploying user app command(s)...");
+	PinoLogger.info('Deploying user app command(s)...');
 	const userAppCommandsJson = [];
 	for (const [key, command] of userAppCommands) {
 		const cmdJson = command.data.toJSON() as CommandJSON;
@@ -127,19 +128,19 @@ export async function deploy(client: Client) {
 			Routes.applicationGuildCommands(Bun.env.APPLICATION_ID.toString(), guild[0]),
 			{ body: [...new Set(guild[1])] }
 		)) as { length: number };
-		PinoLogger.info(
-			`Deployed ${data.length} command(s) for the '${guild[0]}' guild.`
-		);
+		PinoLogger.info(`Deployed ${data.length} command(s) for the '${guild[0]}' guild.`);
 	}
 }
 
 /** Import every typescript file in the commands folder */
 async function importCommands() {
-	const commandsPath = resolve('src/commands');
-	const commandFiles = await glob('**/*.cmd.ts', { cwd: commandsPath });
-
-	for (const file of commandFiles) {
-		await import(join(commandsPath, file));
+	try {
+		// @ts-ignore
+		await import('./bundle.commands');
+	} catch (err) {
+		PinoLogger.warn(
+			"Couldn't import 'commands' bundle file. Make sure you have generated it by using the package scripts."
+		);
 	}
 }
 
@@ -165,19 +166,20 @@ function deepEqual(obj1: any, obj2: any): boolean {
 }
 
 /** Check to see if the command data has changed, and if yes, then cache */
-function areCommandsCached(commandCollection: CommandCollection): boolean {
+async function areCommandsCached(commandCollection: CommandCollection): Promise<boolean> {
 	// We stringify and parse to remove any non-json property
 	const commands = JSON.parse(JSON.stringify(commandCollection.map((c) => c)));
-	const cachePath = resolve('src/@ddev/.cache.json');
-	if (!existsSync(cachePath)) {
-		writeFileSync(cachePath, '[]', 'utf-8');
+	let cacheFile = Bun.file('.cache.json');
+	if (!(await cacheFile.exists())) {
+		await Bun.write(cacheFile, '[]');
+		cacheFile = Bun.file('.cache.json');
 	}
-	const cacheJson = JSON.parse(readFileSync(cachePath, 'utf-8'));
+	const cacheJson = await cacheFile.json();
 
 	if (deepEqual(commands, cacheJson)) {
 		return true;
 	}
 
-	writeFileSync(cachePath, JSON.stringify(commands), 'utf-8');
+	await Bun.write(cacheFile, JSON.stringify(commands));
 	return false;
 }

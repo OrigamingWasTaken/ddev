@@ -1,7 +1,8 @@
 import { $ } from 'bun';
 import pino from 'pino';
+import { name } from '../package.json';
 
-const BINARY_NAME = 'ddev';
+const binaryName = name.toLowerCase().trim().replaceAll(' ', '_');
 
 const start = performance.now();
 const plogger = pino({
@@ -12,92 +13,71 @@ const plogger = pino({
 await $`rm -rf ./dist`;
 
 const builds = {
-	win64: [
-		'bun',
-		'build',
-		'--compile',
-		'--target=bun-linux-x64-baseline',
-		'./src/index.ts',
-		'--outfile',
-		`dist/${BINARY_NAME}_win_x64.exe`,
-	],
-	linux64: [
-		'bun',
-		'build',
-		'--compile',
-		'--target=bun-linux-x64-baseline',
-		'./src/index.ts',
-		'--outfile',
-		`dist/${BINARY_NAME}_linux_x64`,
-	],
-	linuxArm64: [
-		'bun',
-		'build',
-		'--compile',
-		'--target=bun-linux-arm64',
-		'./src/index.ts',
-		'--outfile',
-		`dist/${BINARY_NAME}_linux_arm64`,
-	],
-	mac64: [
-		'bun',
-		'build',
-		'--compile',
-		'--target=bun-darwin-x64',
-		'./src/index.ts',
-		'--outfile',
-		`dist/${BINARY_NAME}_macos_x64`,
-	],
-	macArm64: [
-		'bun',
-		'build',
-		'--compile',
-		'--target=bun-darwin-arm64',
-		'./src/index.ts',
-		'--outfile',
-		`dist/${BINARY_NAME}_macos_arm64`,
-	],
-	default: ['bun', 'build', '--compile', './src/index.ts', '--outfile', `dist/${BINARY_NAME}`],
+	// biome-ignore lint: id
+	win_x64: {
+		target: 'bun-windows-x64-baseline',
+		name: `${binaryName}_win_x64.exe`,
+	},
+	// biome-ignore lint: id
+	linux_x64: {
+		target: 'bun-linux-x64-baseline',
+		name: `${binaryName}_linux_x64`,
+	},
+	// biome-ignore lint: id
+	linux_arm64: {
+		target: 'bun-linux-arm64',
+		name: `${binaryName}_linux_arm64`,
+	},
+	// biome-ignore lint: id
+	mac_x64: {
+		target: 'bun-darwin-x64',
+		name: `${binaryName}_macos_x64`,
+	},
+	// biome-ignore lint: id
+	mac_arm64: {
+		target: 'bun-darwin-arm64',
+		name: `${binaryName}_macos_arm64`,
+	},
 };
+
+async function build(arch: keyof typeof builds) {
+	plogger.info(`Compiling for ${arch}...`);
+	const build = builds[arch];
+	await $`bun build --compile --sourcemap --minify --target=${build.target} ./src/index.ts --outfile ./dist/${build.name}`;
+}
+
+async function buildDefault() {
+	plogger.info('Compiling app...');
+	await $`bun build --compile --minify --sourcemap ./src/index.ts --outfile ./dist/${binaryName}`;
+}
 
 if (Bun.argv[2]) {
 	switch (Bun.argv[2].slice(2)) {
 		case 'windows':
-			plogger.info('[1/1] Compiling app for win_x64');
-			await Bun.spawn(builds.win64).exited;
+			await build('win_x64');
 			break;
 		case 'linux':
-			plogger.info('[1/2] Compiling app for linux_x64');
-			await Bun.spawn(builds.linux64).exited;
-			plogger.info('[2/2] Compiling app for linux_arm64');
-			await Bun.spawn(builds.linuxArm64).exited;
+			await build('linux_x64');
+			await build('linux_arm64');
 			break;
 		case 'macos':
-			plogger.info('[1/2] Compiling app for mac_x64');
-			await Bun.spawn(builds.mac64).exited;
-			plogger.info('[2/2] Compiling app for mac_arm64');
-			await Bun.spawn(builds.macArm64).exited;
+			await build('mac_x64');
+			await build('mac_arm64');
 			break;
 		case 'all':
-			plogger.info('[1/5] Compiling app for win_x64');
-			await Bun.spawn(builds.win64).exited;
-			plogger.info('[2/5] Compiling app for linux_x64');
-			await Bun.spawn(builds.linux64).exited;
-			plogger.info('[3/5] Compiling app for linux_arm64');
-			await Bun.spawn(builds.linuxArm64).exited;
-			plogger.info('[4/5] Compiling app for mac_x64');
-			await Bun.spawn(builds.mac64).exited;
-			plogger.info('[5/5] Compiling app for mac_arm64');
-			await Bun.spawn(builds.macArm64).exited;
+			await build('win_x64');
+			await build('linux_x64');
+			await build('linux_arm64');
+			await build('mac_x64');
+			await build('mac_arm64');
 			break;
 		default:
-			plogger.info('[1/1] Compiling app...');
-			await Bun.spawn(builds.default).exited;
+			await buildDefault();
 	}
 } else {
-	plogger.info('[1/1] Compiling app...');
-	await Bun.spawn(builds.default).exited;
+	await buildDefault();
 }
 
+await $`rm -f bot_commands`;
+
 plogger.info(`Build complete in ${(performance.now() - start).toFixed(2)}ms`);
-await $`open dist`;

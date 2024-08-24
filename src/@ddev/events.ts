@@ -40,9 +40,12 @@ export async function loadEvents(client: Client) {
 }
 
 async function importEvents() {
-	const eventsPath = resolve('src/events');
-	const eventFiles = await glob('**/*.evt.ts', { cwd: eventsPath });
-	for (const file of eventFiles) {
-		await import(join(eventsPath, file));
+	try {
+		// @ts-ignore
+		await import('./bundle.events');
+	} catch (err) {
+		PinoLogger.warn(
+			"Couldn't import 'events' bundle file. Make sure you have generated it by using the package scripts."
+		);
 	}
 }
