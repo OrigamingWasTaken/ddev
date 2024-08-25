@@ -43,12 +43,12 @@ const builds = {
 async function build(arch: keyof typeof builds) {
 	plogger.info(`Compiling for ${arch}...`);
 	const build = builds[arch];
-	await $`bun build --compile --sourcemap --minify --target=${build.target} ./src/index.ts --outfile ./dist/${build.name}`;
+	await $`bun build --compile --sourcemap --target=${build.target} ./src/index.ts --outfile ./dist/${build.name}`;
 }
 
 async function buildDefault() {
 	plogger.info('Compiling app...');
-	await $`bun build --compile --minify --sourcemap ./src/index.ts --outfile ./dist/${binaryName}`;
+	await $`bun build --compile --sourcemap ./src/index.ts --outfile ./dist/${binaryName}`;
 }
 
 if (Bun.argv[2]) {
