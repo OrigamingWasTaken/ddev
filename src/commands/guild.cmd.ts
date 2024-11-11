@@ -1,5 +1,5 @@
 import { RegisterSlashCommand } from '@ddev';
-import { SlashCommandBuilder } from 'discord.js';
+import { InteractionContextType, SlashCommandBuilder } from 'discord.js';
 
 RegisterSlashCommand({
 	data: new SlashCommandBuilder()
@@ -8,7 +8,7 @@ RegisterSlashCommand({
 	async execute(interaction) {
 		await interaction.reply('Haii :3! 🫵 are cute >.<');
 	},
-	options: {
-		guilds: ['1171557764703723611'],
-	},
+	// options: {
+	// 	guilds: ["0000000000000000"],
+	// },
 });

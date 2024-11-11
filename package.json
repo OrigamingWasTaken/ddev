@@ -24,7 +24,7 @@
 		"typescript": "^5.0.0"
 	},
 	"dependencies": {
-		"discord.js": "^14.15.3",
+		"discord.js": "^14.16.3",
 		"glob": "^11.0.0",
 		"pino": "^9.3.2",
 		"pino-pretty": "^11.2.2"

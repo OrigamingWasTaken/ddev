@@ -19,11 +19,6 @@ export interface Command {
 	options?: {
 		/** Array of guild IDs */
 		guilds?: string[];
-		/** Registers the command as a user app command */
-		userApp?: {
-			/** Specifies where the command can be used (Guilds ,Bot DMS, Private Channel) */
-			contexts: Context[];
-		};
 	};
 }
 
@@ -31,28 +26,6 @@ export type CommandCollection = Collection<any, Command>;
 
 // Commands collection
 const commands: CommandCollection = new Collection();
-
-// Extend command json for user app
-export enum IntegrationType {
-	Guild = 0,
-	User = 1,
-}
-
-/** Defines where the command can be used */
-export enum Context {
-	/** Command can be used in guilds */
-	Guild = 0,
-	/** Command can be used in Bot DMs */
-	User = 1,
-	/** Command can be used in groups and all DMs */
-	Private = 2,
-}
-
-interface CommandJSON extends RESTPostAPIChatInputApplicationCommandsJSONBody {
-	// biome-ignore lint: This format is required by the Discord API
-	integration_types?: IntegrationType[];
-	contexts?: Context[];
-}
 
 /** Register a slash command */
 export async function registerCommand(cmd: Command) {
@@ -83,12 +56,11 @@ export async function deploy(
 	}
 
 	const isGuildCommand = (cmd: Command) => cmd.options?.guilds != null;
-	const isUserAppCommand = (cmd: Command) => cmd.options?.userApp != null;
 	const rest = new REST().setToken(Bun.env.BOT_TOKEN);
 
 	// Global commands
 	const globalCommands = client.commands
-		.filter((cmd) => !isGuildCommand(cmd) && !isUserAppCommand(cmd))
+		.filter((cmd) => !isGuildCommand(cmd))
 		.map((c) => c.data.toJSON());
 	PinoLogger.info('Deploying global command(s)...');
 	const data = (await rest.put(Routes.applicationCommands(Bun.env.APPLICATION_ID.toString()), {
@@ -96,26 +68,11 @@ export async function deploy(
 	})) as Array<any>;
 	PinoLogger.info(`Successfully deployed ${data.length} global command(s).`);
 
-	// User app commands
-	const userAppCommands = client.commands.filter(isUserAppCommand);
-	PinoLogger.info('Deploying user app command(s)...');
-	const userAppCommandsJson = [];
-	for (const [key, command] of userAppCommands) {
-		const cmdJson = command.data.toJSON() as CommandJSON;
-		cmdJson.contexts = command.options?.userApp?.contexts;
-		cmdJson.integration_types = [IntegrationType.User];
-		userAppCommandsJson.push(cmdJson);
-	}
-	const appData = (await rest.put(Routes.applicationCommands(Bun.env.APPLICATION_ID.toString()), {
-		body: userAppCommandsJson,
-	})) as Array<any>;
-	PinoLogger.info(`Successfully deployed ${appData.length} user app command(s).`);
-
 	// We first get all guilds so old commands will also be removed
 	const guildCommands = client.commands.filter(isGuildCommand);
 	const guilds: Collection<string, RESTPostAPIChatInputApplicationCommandsJSONBody[]> =
 		new Collection();
-	for (const [key, command] of guildCommands) {
+	for (const [_key, command] of guildCommands) {
 		if (!command.options?.guilds) continue;
 		// biome-ignore lint: command.options.guilds cannot be undefined here
 		for (const guild of command.options?.guilds) {
@@ -127,11 +84,15 @@ export async function deploy(
 	}
 
 	for (const guild of guilds) {
-		const data = (await rest.put(
-			Routes.applicationGuildCommands(Bun.env.APPLICATION_ID.toString(), guild[0]),
-			{ body: [...new Set(guild[1])] }
-		)) as { length: number };
-		PinoLogger.info(`Deployed ${data.length} command(s) for the '${guild[0]}' guild.`);
+		try {
+			const data = (await rest.put(
+				Routes.applicationGuildCommands(Bun.env.APPLICATION_ID.toString(), guild[0]),
+				{ body: [...new Set(guild[1])] }
+			)) as { length: number };
+			PinoLogger.info(`Deployed ${data.length} command(s) for the '${guild[0]}' guild.`);
+		} catch (err) {
+			PinoLogger.error(`Could not deploy commands for the "${guild[0]}" guild.`);
+		}
 	}
 }
 
@@ -155,6 +116,7 @@ async function importCommands() {
 	}
 }
 
+/** Compares 2 objects to see if they are the same */
 function deepEqual(obj1: any, obj2: any): boolean {
 	if (obj1 === obj2) return true;
 
@@ -180,17 +142,45 @@ function deepEqual(obj1: any, obj2: any): boolean {
 async function areCommandsCached(commandCollection: CommandCollection): Promise<boolean> {
 	// We stringify and parse to remove any non-json property
 	const commands = JSON.parse(JSON.stringify(commandCollection.map((c) => c)));
-	let cacheFile = Bun.file('.cache.json');
+	const cacheFile = Bun.file('.cache.json');
+
+	// Initialize cache structure if file doesn't exist
 	if (!(await cacheFile.exists())) {
-		await Bun.write(cacheFile, '[]');
-		cacheFile = Bun.file('.cache.json');
+		const initialCache = {
+			date: Date.now(),
+			commands: commands,
+		};
+		await Bun.write(cacheFile, JSON.stringify(initialCache));
+		return false; // First time cache is created, we should deploy
 	}
+
 	const cacheJson = await cacheFile.json();
 
-	if (deepEqual(commands, cacheJson)) {
+	// If the cache is older than 5 minutes, update cache and return false
+	if (!cacheJson.date || (Date.now() - cacheJson.date) / 1000 > 300) {
+		const updatedCache = {
+			date: Date.now(),
+			commands: commands,
+		};
+		await Bun.write(cacheFile, JSON.stringify(updatedCache));
+		return false;
+	}
+
+	// If commands are the same, just update the date
+	if (deepEqual(commands, cacheJson.commands)) {
+		const updatedCache = {
+			date: Date.now(),
+			commands: cacheJson.commands,
+		};
+		await Bun.write(cacheFile, JSON.stringify(updatedCache));
 		return true;
 	}
 
-	await Bun.write(cacheFile, JSON.stringify(commands));
+	// Commands have changed, update everything
+	const newCache = {
+		date: Date.now(),
+		commands: commands,
+	};
+	await Bun.write(cacheFile, JSON.stringify(newCache));
 	return false;
 }
