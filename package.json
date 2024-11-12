@@ -1,7 +1,7 @@
 {
 	"name": "ddev",
 	"version": "0.0.1",
-	"description": "Simple, and fast template for DiscordJS using TypeScript and Bun.",
+	"description": "Simple, and fast template for DiscordJS using TypeScript, Bun, and BiomeJS.",
 	"module": "src/index.ts",
 	"type": "module",
 	"scripts": {

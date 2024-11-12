@@ -156,8 +156,11 @@ async function areCommandsCached(commandCollection: CommandCollection): Promise<
 
 	const cacheJson = await cacheFile.json();
 
-	// If the cache is older than 5 minutes, update cache and return false
-	if (!cacheJson.date || (Date.now() - cacheJson.date) / 1000 > 300) {
+	// Dev only: If the cache is older than 5 minutes, update cache and return false
+	if (
+		(Bun.env.NODE_ENV.includes('development') && !cacheJson.date) ||
+		(Date.now() - cacheJson.date) / 1000 > 300
+	) {
 		const updatedCache = {
 			date: Date.now(),
 			commands: commands,
